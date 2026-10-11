@@ -77,10 +77,11 @@ public class MatchingService {
                                link.getService().getDurationMinutes();
             ZonedDateTime desiredEnd = desiredTime.plusMinutes(duration);
 
-            // Convert the absolute UTC time to the server's local time zone 
+            // Convert the absolute UTC time to Asia/Kolkata timezone (or system default)
             // so we can properly compare against the provider's local working hours.
-            java.time.ZonedDateTime localDesiredTime = desiredTime.withZoneSameInstant(java.time.ZoneId.systemDefault());
-            java.time.ZonedDateTime localDesiredEnd = desiredEnd.withZoneSameInstant(java.time.ZoneId.systemDefault());
+            java.time.ZoneId targetZone = java.time.ZoneId.of("Asia/Kolkata");
+            java.time.ZonedDateTime localDesiredTime = desiredTime.withZoneSameInstant(targetZone);
+            java.time.ZonedDateTime localDesiredEnd = desiredEnd.withZoneSameInstant(targetZone);
             int dayOfWeek = localDesiredTime.getDayOfWeek().getValue(); // 1=Mon, 7=Sun
             
             // 5. Check Availability
