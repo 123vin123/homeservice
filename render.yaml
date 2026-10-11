@@ -1,0 +1,45 @@
+services:
+  # 1. Spring Boot Backend Web Service (Free Tier)
+  - type: web
+    name: houseease-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: houseease-db
+          property: connectionString
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+
+  # 2. React / Vite Frontend Static Site (Free Tier)
+  - type: web
+    name: houseease-frontend
+    runtime: static
+    plan: free
+    region: oregon
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: houseease-backend
+          property: host
+
+databases:
+  # 3. PostgreSQL Database (Free Tier)
+  - name: houseease-db
+    plan: free
+    region: oregon

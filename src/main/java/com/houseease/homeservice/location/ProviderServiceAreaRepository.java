@@ -1,0 +1,9 @@
+package com.houseease.homeservice.location;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.List;
+import java.util.UUID;
+
+public interface ProviderServiceAreaRepository extends JpaRepository<ProviderServiceArea, UUID> {
+    List<ProviderServiceArea> findByProviderProfileId(UUID providerId);
+}
