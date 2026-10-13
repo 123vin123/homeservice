@@ -32,6 +32,10 @@ public class PaymentController {
 
     @PostMapping("/verify")
     public ResponseEntity<?> verifyPayment(@RequestBody PaymentVerificationRequest request) {
+        UUID bookingId = request.getBookingId();
+        log.info("[Booking ID: {}] Verifying payment for orderId: {}, paymentId: {}", 
+                bookingId, request.getRazorpayOrderId(), request.getRazorpayPaymentId());
+
         try {
             // Verify Signature
             JSONObject options = new JSONObject();
@@ -42,20 +46,22 @@ public class PaymentController {
             boolean isValid = Utils.verifyPaymentSignature(options, keySecret);
 
             if (isValid) {
-                Booking booking = bookingRepository.findById(request.getBookingId())
-                        .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+                Booking booking = bookingRepository.findById(bookingId)
+                        .orElseThrow(() -> new IllegalArgumentException("Booking not found: " + bookingId));
                 
                 // Confirm the booking
                 booking.setStatus(BookingStatus.CONFIRMED);
-                // We can append the payment id to transaction id
                 booking.setTransactionId(request.getRazorpayOrderId() + "|" + request.getRazorpayPaymentId());
                 bookingRepository.save(booking);
 
+                log.info("[Booking ID: {}] Successfully verified and CONFIRMED via /api/payments/verify", bookingId);
                 return ResponseEntity.ok().body("{\"status\":\"success\"}");
             } else {
+                log.warn("[Booking ID: {}] Verification failed: Invalid Razorpay signature", bookingId);
                 return ResponseEntity.badRequest().body("{\"status\":\"failed\", \"message\":\"Invalid signature\"}");
             }
         } catch (Exception e) {
+            log.error("[Booking ID: {}] Error verifying payment: {}", bookingId, e.getMessage(), e);
             return ResponseEntity.internalServerError().body("{\"status\":\"error\", \"message\":\"" + e.getMessage() + "\"}");
         }
     }
@@ -69,10 +75,8 @@ public class PaymentController {
             @RequestBody String payload,
             @RequestHeader(value = "X-Razorpay-Signature", required = false) String signature) {
 
-        log.info("Received Razorpay webhook notification");
-
         if (signature == null || signature.isBlank()) {
-            log.warn("Missing X-Razorpay-Signature header in webhook request");
+            log.warn("[Booking ID: N/A] Missing X-Razorpay-Signature header in webhook request");
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Missing signature header");
         }
 
@@ -80,16 +84,16 @@ public class PaymentController {
             // 1. Cryptographically verify signature using Webhook Secret
             boolean isValid = Utils.verifyWebhookSignature(payload, signature, webhookSecret);
             if (!isValid) {
-                log.warn("Invalid Razorpay webhook signature");
+                log.warn("[Booking ID: N/A] Invalid Razorpay webhook signature");
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid webhook signature");
             }
 
             JSONObject eventJson = new JSONObject(payload);
             String event = eventJson.optString("event");
-            log.info("Processing Razorpay webhook event: {}", event);
 
             JSONObject payloadObj = eventJson.optJSONObject("payload");
             if (payloadObj == null) {
+                log.warn("[Booking ID: N/A] Received webhook event {} with empty payload object", event);
                 return ResponseEntity.ok("No payload object found");
             }
 
@@ -114,17 +118,22 @@ public class PaymentController {
             }
 
             if (orderId == null || orderId.isBlank()) {
-                log.info("Webhook event {} did not contain order_id. Skipping booking lookup.", event);
+                log.info("[Booking ID: N/A] Webhook event {} did not contain order_id. Skipping booking lookup.", event);
                 return ResponseEntity.ok("Ignored event without order_id");
             }
 
+            // Look up booking by order_id prefix
             Optional<Booking> bookingOpt = bookingRepository.findFirstByTransactionIdStartingWith(orderId);
             if (bookingOpt.isEmpty()) {
-                log.warn("No booking found for order_id: {}", orderId);
+                log.warn("[Booking ID: NOT_FOUND] No booking found for order_id: {} in event: {}", orderId, event);
                 return ResponseEntity.ok("Booking not found for order");
             }
 
             Booking booking = bookingOpt.get();
+            UUID bookingId = booking.getId();
+
+            log.info("[Booking ID: {}] Processing Razorpay webhook event: {} (order_id: {}, payment_id: {})", 
+                    bookingId, event, orderId, paymentId);
 
             // 2. Handle Payment Success
             if ("payment.captured".equals(event) || "order.paid".equals(event)) {
@@ -139,16 +148,19 @@ public class PaymentController {
                         booking.setNotes(booking.getNotes().replaceAll(" \\[Payment Failed[^\\]]*\\]", ""));
                     }
                     bookingRepository.save(booking);
-                    log.info("Booking {} successfully CONFIRMED via webhook event {}", booking.getId(), event);
+                    log.info("[Booking ID: {}] Successfully CONFIRMED via webhook event {} (order: {}, payment: {})", 
+                            bookingId, event, orderId, paymentId);
                 } else if (booking.getStatus() == BookingStatus.CONFIRMED) {
                     // Idempotent: Razorpay sends both payment.captured and order.paid
                     if (paymentId != null && !booking.getTransactionId().contains(paymentId)) {
                         booking.setTransactionId(orderId + "|" + paymentId);
                         bookingRepository.save(booking);
                     }
-                    log.info("Booking {} is already CONFIRMED. Acknowledged duplicate webhook event {}", booking.getId(), event);
+                    log.info("[Booking ID: {}] Is already CONFIRMED. Acknowledged duplicate webhook event {} (order: {}, payment: {})", 
+                            bookingId, event, orderId, paymentId);
                 } else {
-                    log.info("Booking {} is in status {}, ignoring success event", booking.getId(), booking.getStatus());
+                    log.info("[Booking ID: {}] Is in status {}, ignoring success event {}", 
+                            bookingId, booking.getStatus(), event);
                 }
             }
             // 3. Handle Payment Failure
@@ -160,9 +172,11 @@ public class PaymentController {
                             : " [Payment Failed]";
                     booking.setNotes((booking.getNotes() != null ? booking.getNotes() : "") + reason);
                     bookingRepository.save(booking);
-                    log.info("Booking {} cancelled via webhook payment.failed. Slot released back to public.", booking.getId());
+                    log.info("[Booking ID: {}] CANCELLED via webhook payment.failed. Slot released back to public. Reason: {}", 
+                            bookingId, reason);
                 } else {
-                    log.info("Booking {} is in status {}, ignoring failed event", booking.getId(), booking.getStatus());
+                    log.info("[Booking ID: {}] Is in status {}, ignoring failed event", 
+                            bookingId, booking.getStatus());
                 }
             }
 
@@ -170,7 +184,7 @@ public class PaymentController {
             return ResponseEntity.ok("Webhook processed successfully");
 
         } catch (Exception e) {
-            log.error("Error processing Razorpay webhook: {}", e.getMessage(), e);
+            log.error("[Booking ID: ERROR] Exception processing Razorpay webhook: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Webhook processing error");
         }
     }

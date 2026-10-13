@@ -15,6 +15,7 @@ import com.houseease.homeservice.user.User;
 import com.houseease.homeservice.user.UserRepository;
 import com.houseease.homeservice.payment.PaymentService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +40,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class BookingService {
 
         private final BookingRepository bookingRepository;
@@ -144,6 +146,8 @@ public class BookingService {
                 }
 
                 Booking saved = bookingRepository.save(booking);
+                log.info("[Booking ID: {}] Created new booking for customer: {}, provider: {}, status: {}, transactionId: {}", 
+                        saved.getId(), customer.getId(), provider.getId(), saved.getStatus(), saved.getTransactionId());
                 return mapToDto(saved);
         }
 
@@ -189,6 +193,8 @@ public class BookingService {
 
                 booking.setStatus(newStatus);
                 Booking updated = bookingRepository.save(booking);
+                log.info("[Booking ID: {}] Status transitioned from {} to {} by userId: {}", 
+                        updated.getId(), currentStatus, newStatus, userId);
                 return mapToDto(updated);
         }
 
