@@ -128,15 +128,27 @@ public class PaymentController {
 
             // 2. Handle Payment Success
             if ("payment.captured".equals(event) || "order.paid".equals(event)) {
-                if (booking.getStatus() == BookingStatus.PAYMENT_PENDING) {
+                // If PAYMENT_PENDING, or if a previous retry attempt failed (CANCELLED), the customer has now paid:
+                if (booking.getStatus() == BookingStatus.PAYMENT_PENDING || booking.getStatus() == BookingStatus.CANCELLED) {
                     booking.setStatus(BookingStatus.CONFIRMED);
                     if (paymentId != null) {
                         booking.setTransactionId(orderId + "|" + paymentId);
                     }
+                    // Clean up any failed notes from earlier retry attempts
+                    if (booking.getNotes() != null && booking.getNotes().contains("[Payment Failed")) {
+                        booking.setNotes(booking.getNotes().replaceAll(" \\[Payment Failed[^\\]]*\\]", ""));
+                    }
                     bookingRepository.save(booking);
-                    log.info("Booking {} confirmed via webhook event {}", booking.getId(), event);
+                    log.info("Booking {} successfully CONFIRMED via webhook event {}", booking.getId(), event);
+                } else if (booking.getStatus() == BookingStatus.CONFIRMED) {
+                    // Idempotent: Razorpay sends both payment.captured and order.paid
+                    if (paymentId != null && !booking.getTransactionId().contains(paymentId)) {
+                        booking.setTransactionId(orderId + "|" + paymentId);
+                        bookingRepository.save(booking);
+                    }
+                    log.info("Booking {} is already CONFIRMED. Acknowledged duplicate webhook event {}", booking.getId(), event);
                 } else {
-                    log.info("Booking {} is already in status {}, ignoring success event", booking.getId(), booking.getStatus());
+                    log.info("Booking {} is in status {}, ignoring success event", booking.getId(), booking.getStatus());
                 }
             }
             // 3. Handle Payment Failure
