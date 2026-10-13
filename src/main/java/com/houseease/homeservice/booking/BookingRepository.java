@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -17,6 +18,8 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     List<Booking> findByCustomerIdOrderByScheduledTimeDesc(UUID customerId);
 
     List<Booking> findByProviderIdOrderByScheduledTimeDesc(UUID providerId);
+
+    Optional<Booking> findFirstByTransactionIdStartingWith(String orderIdPrefix);
 
     /**
      * Checks if an active (non-cancelled) booking already exists for
