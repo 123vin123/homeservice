@@ -48,6 +48,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ onLogout, token }) => {
   const [cardNumber, setCardNumber] = useState('');
   const [upiId, setUpiId] = useState('');
 
+  // Review & Rating State
+  const [reviewModalBooking, setReviewModalBooking] = useState<any | null>(null);
+  const [reviewRating, setReviewRating] = useState<number>(5);
+  const [reviewHoverRating, setReviewHoverRating] = useState<number>(0);
+  const [reviewComment, setReviewComment] = useState<string>('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState<boolean>(false);
+  const [reviewedBookings, setReviewedBookings] = useState<Record<string, any>>({});
+
+  // Provider Reviews Modal State
+  const [providerReviewsModal, setProviderReviewsModal] = useState<{ providerId: string; providerName: string } | null>(null);
+  const [providerReviews, setProviderReviews] = useState<any[]>([]);
+  const [isLoadingProviderReviews, setIsLoadingProviderReviews] = useState<boolean>(false);
+
   // Profile State
   const [userProfile, setUserProfile] = useState<any>(null);
   const [firstName, setFirstName] = useState('');
@@ -136,15 +149,84 @@ export const Dashboard: React.FC<DashboardProps> = ({ onLogout, token }) => {
     };
   }, [token]);
 
+  const fetchCustomerBookings = () => {
+    fetch(`${API_BASE_URL}/api/bookings/customer`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(handleAuthError)
+      .then(res => res.json())
+      .then((data: any[]) => {
+        setBookings(data);
+        if (Array.isArray(data)) {
+          data.filter(b => b.status === 'COMPLETED').forEach(b => {
+            fetch(`${API_BASE_URL}/api/bookings/${b.id}/review`, { headers: { 'Authorization': `Bearer ${token}` } })
+              .then(res => res.ok ? res.json() : null)
+              .then(rev => {
+                if (rev) {
+                  setReviewedBookings(prev => ({ ...prev, [b.id]: rev }));
+                }
+              })
+              .catch(() => {});
+          });
+        }
+      })
+      .catch(console.error);
+  };
+
   useEffect(() => {
     if (activeView === 'BOOKINGS') {
-      fetch(`${API_BASE_URL}/api/bookings/customer`, { headers: { 'Authorization': `Bearer ${token}` } })
-        .then(handleAuthError)
-        .then(res => res.json())
-        .then(setBookings)
-        .catch(console.error);
+      fetchCustomerBookings();
     }
   }, [token, activeView]);
+
+  const handleSubmitReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reviewModalBooking) return;
+    setIsSubmittingReview(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/bookings/${reviewModalBooking.id}/review`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          rating: reviewRating,
+          comment: reviewComment
+        })
+      });
+      handleAuthError(res);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to submit review');
+      }
+      showToast('Thank you! Your review has been submitted.', 'success');
+      setReviewedBookings(prev => ({ ...prev, [reviewModalBooking.id]: data }));
+      setReviewModalBooking(null);
+      setReviewComment('');
+      setReviewRating(5);
+    } catch (err: any) {
+      showToast(err.message || 'Error submitting review', 'error');
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  const handleOpenProviderReviews = (providerId: string, providerName: string) => {
+    setProviderReviewsModal({ providerId, providerName });
+    setIsLoadingProviderReviews(true);
+    setProviderReviews([]);
+    fetch(`${API_BASE_URL}/api/providers/${providerId}/reviews`)
+      .then(res => res.json())
+      .then(data => {
+        setProviderReviews(Array.isArray(data) ? data : []);
+      })
+      .catch(err => {
+        console.error(err);
+        showToast('Failed to load reviews', 'error');
+      })
+      .finally(() => {
+        setIsLoadingProviderReviews(false);
+      });
+  };
 
   const categories = ['All', ...Array.from(new Set(services.map(s => s.categoryName).filter(Boolean)))];
 
@@ -403,10 +485,51 @@ export const Dashboard: React.FC<DashboardProps> = ({ onLogout, token }) => {
                         <strong>Price:</strong> ₹{b.totalPrice}
                       </p>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
+                    <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
                       <span style={{ display: 'inline-block', padding: '6px 12px', borderRadius: '20px', fontSize: '0.875rem', fontWeight: 600, background: b.status === 'PENDING' ? '#fef3c7' : b.status === 'CONFIRMED' ? '#dbeafe' : b.status === 'IN_PROGRESS' ? '#e0e7ff' : b.status === 'COMPLETED' ? '#d1fae5' : '#fee2e2', color: b.status === 'PENDING' ? '#b45309' : b.status === 'CONFIRMED' ? '#1e40af' : b.status === 'IN_PROGRESS' ? '#3730a3' : b.status === 'COMPLETED' ? '#065f46' : '#991b1b' }}>
                         {b.status === 'IN_PROGRESS' ? 'IN PROGRESS' : b.status}
                       </span>
+                      {b.status === 'COMPLETED' && (
+                        <div>
+                          {reviewedBookings[b.id] ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                              <span style={{ fontSize: '0.85rem', color: '#10b981', fontWeight: 600 }}>
+                                ✓ Reviewed (★ {reviewedBookings[b.id].rating})
+                              </span>
+                              {reviewedBookings[b.id].comment && (
+                                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontStyle: 'italic', maxWidth: '240px', textAlign: 'right' }}>
+                                  "{reviewedBookings[b.id].comment}"
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setReviewModalBooking(b);
+                                setReviewRating(5);
+                                setReviewHoverRating(0);
+                                setReviewComment('');
+                              }}
+                              style={{
+                                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '6px 14px',
+                                fontSize: '0.85rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                boxShadow: '0 2px 6px rgba(245, 158, 11, 0.3)'
+                              }}
+                            >
+                              ⭐ Leave Review
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -590,7 +713,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ onLogout, token }) => {
                     <div className="provider-info">
                       <h4>{p.firstName} {p.lastName}</h4>
                       <p className="provider-meta">
-                        <span className="rating">★ {p.averageRating}</span> · {p.totalReviews} reviews · {p.distanceKm} km away
+                        <span
+                          className="rating"
+                          style={{ cursor: 'pointer', background: 'rgba(245, 158, 11, 0.15)', padding: '2px 8px', borderRadius: '6px' }}
+                          title="Click to view customer reviews"
+                          onClick={() => handleOpenProviderReviews(p.providerId, `${p.firstName} ${p.lastName}`)}
+                        >
+                          ★ {p.averageRating}
+                        </span> · <span
+                          style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                          title="Click to view customer reviews"
+                          onClick={() => handleOpenProviderReviews(p.providerId, `${p.firstName} ${p.lastName}`)}
+                        >
+                          {p.totalReviews} reviews
+                        </span> · {p.distanceKm} km away
                       </p>
                     </div>
                     <div className="provider-right">
@@ -743,6 +879,156 @@ export const Dashboard: React.FC<DashboardProps> = ({ onLogout, token }) => {
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
               <button className="btn-primary" onClick={() => { setTransactionDetails(null); setActiveView('BOOKINGS'); }}>
                 View My Bookings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Review Submission Modal */}
+      {reviewModalBooking && (
+        <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
+          <div className="modal-content" style={{ background: 'var(--bg-card)', padding: '32px', borderRadius: 'var(--radius-lg)', maxWidth: '480px', width: '90%', border: '1px solid var(--border)', boxShadow: '0 20px 40px rgba(0,0,0,0.6)' }}>
+            <h2 style={{ margin: '0 0 12px 0', fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              ⭐ Rate & Review Service
+            </h2>
+            <p style={{ margin: '0 0 20px 0', color: 'var(--text-muted)', fontSize: '0.95rem' }}>
+              How was your <strong>{reviewModalBooking.serviceName}</strong> by <strong>{reviewModalBooking.providerName}</strong>?
+            </p>
+
+            <form onSubmit={handleSubmitReview}>
+              <div style={{ marginBottom: '20px', textAlign: 'center' }}>
+                <label style={{ display: 'block', marginBottom: '10px', fontWeight: 600, color: 'var(--text-color)' }}>
+                  Your Rating
+                </label>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', fontSize: '2.2rem' }}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <span
+                      key={star}
+                      style={{
+                        cursor: 'pointer',
+                        color: (reviewHoverRating || reviewRating) >= star ? '#f59e0b' : 'var(--text-muted)',
+                        transition: 'transform 0.15s ease, color 0.15s ease',
+                        transform: (reviewHoverRating || reviewRating) >= star ? 'scale(1.15)' : 'scale(1)'
+                      }}
+                      onMouseEnter={() => setReviewHoverRating(star)}
+                      onMouseLeave={() => setReviewHoverRating(0)}
+                      onClick={() => setReviewRating(star)}
+                    >
+                      ★
+                    </span>
+                  ))}
+                </div>
+                <div style={{ marginTop: '8px', fontSize: '0.9rem', color: '#f59e0b', fontWeight: 500 }}>
+                  {reviewRating === 5 && '★★★★★ Excellent service!'}
+                  {reviewRating === 4 && '★★★★☆ Very good experience'}
+                  {reviewRating === 3 && '★★★☆☆ Average experience'}
+                  {reviewRating === 2 && '★★☆☆☆ Below expectations'}
+                  {reviewRating === 1 && '★☆☆☆☆ Poor service'}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500, color: 'var(--text-muted)' }}>
+                  Your Feedback (Optional)
+                </label>
+                <textarea
+                  rows={4}
+                  placeholder="Share details of your experience (quality, punctuality, communication)..."
+                  value={reviewComment}
+                  onChange={e => setReviewComment(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-color)',
+                    fontSize: '0.95rem',
+                    resize: 'vertical'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={isSubmittingReview}
+                  onClick={() => setReviewModalBooking(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={isSubmittingReview}
+                  style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
+                >
+                  {isSubmittingReview ? 'Submitting...' : 'Submit Review'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Provider Reviews Modal */}
+      {providerReviewsModal && (
+        <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
+          <div className="modal-content" style={{ background: 'var(--bg-card)', padding: '32px', borderRadius: 'var(--radius-lg)', maxWidth: '550px', width: '90%', maxHeight: '80vh', overflowY: 'auto', border: '1px solid var(--border)', boxShadow: '0 20px 40px rgba(0,0,0,0.6)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.3rem' }}>⭐ Reviews for {providerReviewsModal.providerName}</h2>
+                <p style={{ margin: '4px 0 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  Customer feedback and ratings
+                </p>
+              </div>
+              <button
+                onClick={() => setProviderReviewsModal(null)}
+                style={{ background: 'none', border: 'none', fontSize: '1.4rem', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {isLoadingProviderReviews ? (
+              <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                Loading reviews...
+              </div>
+            ) : providerReviews.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>💬</div>
+                <h3>No reviews yet</h3>
+                <p style={{ fontSize: '0.9rem' }}>This provider hasn't received any reviews yet. Complete a booking with them to leave the first review!</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {providerReviews.map(r => (
+                  <div key={r.id} style={{ background: 'var(--bg-secondary)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <strong style={{ fontSize: '0.95rem' }}>{r.customerName}</strong>
+                      <span style={{ color: '#f59e0b', fontSize: '1rem', fontWeight: 600 }}>
+                        {'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                      <span>Service: {r.serviceName}</span>
+                      <span>{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ''}</span>
+                    </div>
+                    {r.comment && (
+                      <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-color)', lineHeight: 1.4 }}>
+                        "{r.comment}"
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn-secondary" onClick={() => setProviderReviewsModal(null)}>
+                Close
               </button>
             </div>
           </div>

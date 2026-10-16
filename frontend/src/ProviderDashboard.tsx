@@ -8,7 +8,7 @@ interface ProviderDashboardProps {
 }
 
 export const ProviderDashboard: React.FC<ProviderDashboardProps> = ({ onLogout, token }) => {
-  const [activeTab, setActiveTab] = useState<'SERVICES' | 'AVAILABILITY' | 'LOCATION' | 'PROFILE' | 'BOOKINGS'>('SERVICES');
+  const [activeTab, setActiveTab] = useState<'SERVICES' | 'AVAILABILITY' | 'LOCATION' | 'PROFILE' | 'BOOKINGS' | 'REVIEWS'>('SERVICES');
 
   // -- Services State --
   const [myProfile, setMyProfile] = useState<any>(null);
@@ -43,6 +43,10 @@ export const ProviderDashboard: React.FC<ProviderDashboardProps> = ({ onLogout, 
 
   // -- Bookings State --
   const [bookings, setBookings] = useState<any[]>([]);
+
+  // -- Reviews State --
+  const [providerReviews, setProviderReviews] = useState<any[]>([]);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(false);
 
   // -- Toast State --
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
@@ -122,11 +126,23 @@ export const ProviderDashboard: React.FC<ProviderDashboardProps> = ({ onLogout, 
     fetchAllServices();
   }, [token]);
 
+  const fetchReviews = () => {
+    if (myProfile?.id) {
+      setIsLoadingReviews(true);
+      fetch(`${API_BASE_URL}/api/providers/${myProfile.id}/reviews`)
+        .then(res => res.json())
+        .then(data => setProviderReviews(Array.isArray(data) ? data : []))
+        .catch(console.error)
+        .finally(() => setIsLoadingReviews(false));
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'AVAILABILITY') fetchAvailabilities();
     if (activeTab === 'LOCATION') fetchServiceAreas();
     if (activeTab === 'PROFILE') fetchUserProfile();
     if (activeTab === 'BOOKINGS') fetchBookings();
+    if (activeTab === 'REVIEWS') fetchReviews();
   }, [activeTab, myProfile?.id]);
 
   // ---- Service Handlers ----
@@ -370,6 +386,12 @@ export const ProviderDashboard: React.FC<ProviderDashboardProps> = ({ onLogout, 
             onClick={() => setActiveTab('PROFILE')}
           >
             👤 Profile Settings
+          </button>
+          <button
+            className={`category-tab ${activeTab === 'REVIEWS' ? 'active' : ''}`}
+            onClick={() => setActiveTab('REVIEWS')}
+          >
+            ⭐ Reviews ({myProfile?.totalReviews || 0})
           </button>
         </div>
 
@@ -670,6 +692,66 @@ export const ProviderDashboard: React.FC<ProviderDashboardProps> = ({ onLogout, 
               </form>
             </div>
           </>
+        )}
+
+        {activeTab === 'REVIEWS' && (
+          <div className="detail-hero-card">
+            <div className="detail-header-left" style={{ marginBottom: '24px' }}>
+              <h2>Customer Reviews & Ratings</h2>
+              <p>See what clients are saying about your services.</p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '24px', alignItems: 'center', background: 'var(--bg-secondary)', padding: '24px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', marginBottom: '30px' }}>
+              <div style={{ textAlign: 'center', minWidth: '120px' }}>
+                <div style={{ fontSize: '3rem', fontWeight: 800, color: '#f59e0b', lineHeight: 1 }}>
+                  ★ {myProfile?.averageRating || '0.0'}
+                </div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '6px' }}>
+                  Out of 5.0
+                </div>
+              </div>
+              <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '24px' }}>
+                <h3 style={{ margin: '0 0 6px 0' }}>Overall Performance</h3>
+                <p style={{ margin: 0, color: 'var(--text-muted)' }}>
+                  Total verified customer reviews: <strong>{myProfile?.totalReviews || 0}</strong>
+                </p>
+              </div>
+            </div>
+
+            {isLoadingReviews ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                Loading customer reviews...
+              </div>
+            ) : providerReviews.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">💬</div>
+                <h3>No reviews yet</h3>
+                <p>When customers complete a booking with you, they will be able to rate and review your service here.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {providerReviews.map(r => (
+                  <div key={r.id} style={{ background: 'var(--bg-secondary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <h4 style={{ margin: 0 }}>{r.customerName}</h4>
+                      <span style={{ color: '#f59e0b', fontSize: '1.1rem', fontWeight: 700 }}>
+                        {'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '16px', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                      <span><strong>Service:</strong> {r.serviceName}</span>
+                      <span><strong>Date:</strong> {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ''}</span>
+                    </div>
+                    {r.comment && (
+                      <p style={{ margin: 0, color: 'var(--text-color)', lineHeight: 1.5, background: 'rgba(0,0,0,0.15)', padding: '12px', borderRadius: '8px' }}>
+                        "{r.comment}"
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
       </section>

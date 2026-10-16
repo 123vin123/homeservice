@@ -22,6 +22,18 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles validation errors (e.g. invalid rating bounds).
+     */
+    @ExceptionHandler(org.springframework.web.bind.MethodArgumentNotValidException.class)
+    public ResponseEntity<Object> handleValidationExceptions(org.springframework.web.bind.MethodArgumentNotValidException ex, WebRequest request) {
+        String errorMessage = ex.getBindingResult().getFieldErrors().stream()
+                .map(err -> err.getDefaultMessage())
+                .findFirst()
+                .orElse("Validation error");
+        return buildResponse(HttpStatus.BAD_REQUEST, errorMessage);
+    }
+
+    /**
      * Handles business-rule violations (e.g. "Time slot already booked",
      * invalid state transitions).
      */
