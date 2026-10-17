@@ -211,17 +211,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ onLogout, token }) => {
   };
 
   const handleOpenProviderReviews = (providerId: string, providerName: string) => {
+    if (!providerId) {
+      showToast('Provider ID not found', 'error');
+      return;
+    }
     setProviderReviewsModal({ providerId, providerName });
     setIsLoadingProviderReviews(true);
     setProviderReviews([]);
-    fetch(`${API_BASE_URL}/api/providers/${providerId}/reviews`)
-      .then(res => res.json())
+    fetch(`${API_BASE_URL}/api/providers/${providerId}/reviews`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    })
+      .then(async res => {
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to load reviews (${res.status})`);
+        }
+        return res.json();
+      })
       .then(data => {
         setProviderReviews(Array.isArray(data) ? data : []);
       })
       .catch(err => {
-        console.error(err);
-        showToast('Failed to load reviews', 'error');
+        console.error('Failed to load reviews:', err);
+        showToast(err.message || 'Failed to load reviews', 'error');
       })
       .finally(() => {
         setIsLoadingProviderReviews(false);
@@ -717,13 +729,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onLogout, token }) => {
                           className="rating"
                           style={{ cursor: 'pointer', background: 'rgba(245, 158, 11, 0.15)', padding: '2px 8px', borderRadius: '6px' }}
                           title="Click to view customer reviews"
-                          onClick={() => handleOpenProviderReviews(p.providerId, `${p.firstName} ${p.lastName}`)}
+                          onClick={() => handleOpenProviderReviews(p.providerId || p.id, `${p.firstName} ${p.lastName}`)}
                         >
                           ★ {p.averageRating}
                         </span> · <span
                           style={{ cursor: 'pointer', textDecoration: 'underline' }}
                           title="Click to view customer reviews"
-                          onClick={() => handleOpenProviderReviews(p.providerId, `${p.firstName} ${p.lastName}`)}
+                          onClick={() => handleOpenProviderReviews(p.providerId || p.id, `${p.firstName} ${p.lastName}`)}
                         >
                           {p.totalReviews} reviews
                         </span> · {p.distanceKm} km away

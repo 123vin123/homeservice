@@ -129,10 +129,21 @@ export const ProviderDashboard: React.FC<ProviderDashboardProps> = ({ onLogout, 
   const fetchReviews = () => {
     if (myProfile?.id) {
       setIsLoadingReviews(true);
-      fetch(`${API_BASE_URL}/api/providers/${myProfile.id}/reviews`)
-        .then(res => res.json())
+      fetch(`${API_BASE_URL}/api/providers/${myProfile.id}/reviews`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+        .then(async res => {
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.message || `Failed to load reviews (${res.status})`);
+          }
+          return res.json();
+        })
         .then(data => setProviderReviews(Array.isArray(data) ? data : []))
-        .catch(console.error)
+        .catch(err => {
+          console.error('Failed to load reviews:', err);
+          showToast(err.message || 'Error loading reviews', 'error');
+        })
         .finally(() => setIsLoadingReviews(false));
     }
   };

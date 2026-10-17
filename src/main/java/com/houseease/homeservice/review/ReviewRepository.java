@@ -16,7 +16,17 @@ public interface ReviewRepository extends JpaRepository<Review, UUID> {
 
     Optional<Review> findByBookingId(UUID bookingId);
 
-    List<Review> findByProviderIdOrderByCreatedAtDesc(UUID providerId);
+    @Query("""
+        SELECT r FROM Review r
+        LEFT JOIN FETCH r.booking b
+        LEFT JOIN FETCH b.service
+        LEFT JOIN FETCH r.customer
+        LEFT JOIN FETCH r.provider p
+        LEFT JOIN FETCH p.user
+        WHERE r.provider.id = :providerId
+        ORDER BY r.createdAt DESC
+    """)
+    List<Review> findByProviderIdOrderByCreatedAtDesc(@Param("providerId") UUID providerId);
 
     @Query("SELECT AVG(r.rating) FROM Review r WHERE r.provider.id = :providerId")
     Double getAverageRatingByProviderId(@Param("providerId") UUID providerId);

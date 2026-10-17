@@ -56,7 +56,7 @@ public class ReviewController {
      * Get all reviews for a provider.
      * Public endpoint to view provider's ratings and customer reviews.
      */
-    @GetMapping({"/api/providers/{id}/reviews", "/api/providers/{Id}/reviews"})
+    @GetMapping("/api/providers/{id}/reviews")
     public ResponseEntity<List<ReviewResponse>> getProviderReviews(@PathVariable("id") UUID providerId) {
         log.info("[Booking ID: N/A] GET /api/providers/{}/reviews called", providerId);
         List<ReviewResponse> reviews = reviewService.getProviderReviews(providerId);
